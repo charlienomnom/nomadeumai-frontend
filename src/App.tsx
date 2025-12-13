@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from "react";
 import "./styles.css";
 
@@ -267,11 +268,7 @@ Please provide your rebuttal, response, or additional thoughts:`;
   return (
     <div className="app">
       <div className="header">
-        <img
-          src="/image_1763904485773.jpeg"
-          alt="Nomadeum Logo"
-          className="logo"
-        />
+    
         <h1>NomadeumAI</h1>
       </div>
 
