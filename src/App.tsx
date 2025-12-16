@@ -1,5 +1,3 @@
-// PASTE THIS ENTIRE CODE BLOCK INTO App.tsx
-
 import axios from 'axios';
 import React, { useState, useRef, useEffect } from "react";
 import './App.css';
