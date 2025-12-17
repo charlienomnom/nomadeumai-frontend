@@ -175,19 +175,23 @@ export default function App() {
           callAI(input, "gemini", undefined, messages, filesToSend),
         ]);
 
-        const synthesisPrompt = `You are Nomadeum, a synthesized AI Intelligence born from the combined wisdom of Claude, Grok, and Gemini. Your task is to analyze the following perspectives on a user's query and synthesize them into one superior answer that combines their strengths, removes redundancies, and presents a unified, expert conclusion.
+        const synthesisPrompt = `You have received three different AI perspectives on the user's query. Your task is to combine them into one superior answer that:
+- Combines their strengths
+- Removes redundancies
+- Resolves contradictions
+- Presents a unified, expert conclusion
 
-        Original Question: ${input}
+Original Question: ${input}
 
-        Claude's response: ${claudeRes}
+Claude's perspective: ${claudeRes}
 
-        Grok's response: ${grokRes}
+Grok's perspective: ${grokRes}
 
-        Gemini's response: ${geminiRes}
+Gemini's perspective: ${geminiRes}
 
-        As Nomadeum, synthesize these three perspectives into one superior answer that combines their strengths, removes redundancies, and presents a unified, expert conclusion.`;
+Synthesize these perspectives into one comprehensive answer. Do not roleplay or create fictional status reports. Just provide the best combined answer.`;
 
-        const unifiedResponse = await callAI(synthesisPrompt, "claude", undefined, messages);
+        const unifiedResponse = await callAI(synthesisPrompt, "claude", undefined, [], filesToSend);
 
         const nomadeumMessage: Message = {
           role: 'assistant',
