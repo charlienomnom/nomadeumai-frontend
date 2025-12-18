@@ -98,10 +98,24 @@ export default function App() {
     return response.data.response;
   };
 
-  const handleClearChat = () => {
-    setCurrentMessages([]);
-    setShowContinueDebate(false);
-    setAttachedFiles([]);
+  const filterConversationHistory = (history: Message[]) => {
+    if (!history || history.length === 0) return [];
+    
+    const filtered = history.filter(msg => {
+      if (msg.role === 'user') return true;
+      if (msg.role === 'assistant') {
+        if (mode === 'unified') {
+          return msg.aiSource === 'Nomadeum';
+        } else if (mode === 'debate') {
+          return ['claude', 'grok', 'gemini'].includes(msg.aiSource || '');
+        } else {
+          return msg.aiSource === selectedAI;
+        }
+      }
+      return false;
+    });
+    
+    return filtered.slice(-10);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -111,36 +125,33 @@ export default function App() {
     }
   };
 
-  const handleRemoveFile = (index: number) => {
+  const removeFile = (index: number) => {
     setAttachedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
 
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const file = items[i].getAsFile();
+        if (file) files.push(file);
+      }
+    }
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    if (e.dataTransfer.files) {
-      const newFiles = Array.from(e.dataTransfer.files);
-      setAttachedFiles(prev => [...prev, ...newFiles]);
+    if (files.length > 0) {
+      e.preventDefault();
+      setAttachedFiles(prev => [...prev, ...files]);
     }
   };
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   const handleSend = async () => {
@@ -169,33 +180,64 @@ export default function App() {
 
     try {
       if (mode === 'unified') {
+        // MULTI-LAYER SYNTHESIS ARCHITECTURE
+        // Step 1: Get initial responses from all three AIs
         const [claudeRes, grokRes, geminiRes] = await Promise.all([
-          callAI(input, "claude", undefined, messages, filesToSend),
-          callAI(input, "grok", undefined, messages, filesToSend),
-          callAI(input, "gemini", undefined, messages, filesToSend),
+          callAI(input, "claude", undefined, filterConversationHistory(messages), filesToSend),
+          callAI(input, "grok", undefined, filterConversationHistory(messages), filesToSend),
+          callAI(input, "gemini", undefined, filterConversationHistory(messages), filesToSend),
         ]);
 
-        const synthesisPrompt = `You have received three different AI perspectives on the user's query. Your task is to combine them into one superior answer that:
-- Combines their strengths
-- Removes redundancies
-- Resolves contradictions
-- Presents a unified, expert conclusion
+        // Step 2: Each AI synthesizes ALL THREE responses
+        const synthesisPrompt = (aiName: string) => `You are ${aiName}, and you have been given three AI responses to the same question. Your task is to synthesize them into one superior answer.
 
-Original Question: ${input}
+IMPORTANT: You are synthesizing responses from Claude, Grok, and Gemini. Combine their strengths, remove redundancies, and resolve contradictions.
 
-Claude's perspective: ${claudeRes}
+Original user question: ${input}
 
-Grok's perspective: ${grokRes}
+===== CLAUDE'S RESPONSE =====
+${claudeRes}
 
-Gemini's perspective: ${geminiRes}
+===== GROK'S RESPONSE =====
+${grokRes}
 
-Synthesize these perspectives into one comprehensive answer. Do not roleplay or create fictional status reports. Just provide the best combined answer.`;
+===== GEMINI'S RESPONSE =====
+${geminiRes}
 
-        const unifiedResponse = await callAI(synthesisPrompt, "claude", undefined, [], filesToSend);
+Now provide YOUR synthesis of these three responses. Focus on creating the best possible answer by combining their insights.`;
+
+        // Get three different synthesis perspectives
+        const [claudeSynthesis, grokSynthesis, geminiSynthesis] = await Promise.all([
+          callAI(synthesisPrompt("Claude"), "claude", undefined, [], []),
+          callAI(synthesisPrompt("Grok"), "grok", undefined, [], []),
+          callAI(synthesisPrompt("Gemini"), "gemini", undefined, [], []),
+        ]);
+
+        // Step 3: Final meta-synthesis - combine the three syntheses
+        const metaSynthesisPrompt = `You are Nomadeum, a synthesis AI that represents the combined wisdom of multiple AI perspectives.
+
+You have received THREE different syntheses of the same question. Each synthesis was created by a different AI (Claude, Grok, and Gemini) combining the original responses.
+
+Your task is to create the ULTIMATE answer by combining these three syntheses into one superior response.
+
+Original user question: ${input}
+
+===== CLAUDE'S SYNTHESIS =====
+${claudeSynthesis}
+
+===== GROK'S SYNTHESIS =====
+${grokSynthesis}
+
+===== GEMINI'S SYNTHESIS =====
+${geminiSynthesis}
+
+Now create the final Nomadeum response. This should be the best possible answer, combining the strengths of all three synthesis perspectives. Speak as Nomadeum, the emergent intelligence formed from multiple AI minds working together.`;
+
+        const nomadeumResponse = await callAI(metaSynthesisPrompt, "claude", undefined, [], []);
 
         const nomadeumMessage: Message = {
           role: 'assistant',
-          content: unifiedResponse,
+          content: nomadeumResponse,
           timestamp: new Date().toLocaleTimeString(),
           aiSource: 'Nomadeum',
         };
@@ -203,9 +245,9 @@ Synthesize these perspectives into one comprehensive answer. Do not roleplay or 
 
       } else if (mode === 'debate') {
         const [claudeRes, grokRes, geminiRes] = await Promise.all([
-          callAI(input, "claude", undefined, messages, filesToSend),
-          callAI(input, "grok", undefined, messages, filesToSend),
-          callAI(input, "gemini", undefined, messages, filesToSend),
+          callAI(input, "claude", undefined, filterConversationHistory(messages), filesToSend),
+          callAI(input, "grok", undefined, filterConversationHistory(messages), filesToSend),
+          callAI(input, "gemini", undefined, filterConversationHistory(messages), filesToSend),
         ]);
 
         const claudeMessage: Message = { role: 'assistant', content: claudeRes, timestamp: new Date().toLocaleTimeString(), aiSource: 'claude' };
@@ -216,7 +258,7 @@ Synthesize these perspectives into one comprehensive answer. Do not roleplay or 
         setShowContinueDebate(true);
 
       } else if (mode === 'individual') {
-        const response = await callAI(input, selectedAI, undefined, messages, filesToSend);
+        const response = await callAI(input, selectedAI, undefined, filterConversationHistory(messages), filesToSend);
         const aiMessage: Message = {
           role: 'assistant',
           content: response,
@@ -230,9 +272,9 @@ Synthesize these perspectives into one comprehensive answer. Do not roleplay or 
       console.error("An error occurred during the AI call:", error);
       const errorMessage: Message = {
         role: 'assistant',
-        content: 'Sorry, an error occurred. Please check the console for details.',
+        content: `${mode === 'unified' ? 'Nomadeum' : selectedAI} API error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         timestamp: new Date().toLocaleTimeString(),
-        aiSource: 'System',
+        aiSource: mode === 'unified' ? 'Nomadeum' : selectedAI,
       };
       setCurrentMessages([...messages, userMessage, errorMessage]);
     } finally {
@@ -240,60 +282,56 @@ Synthesize these perspectives into one comprehensive answer. Do not roleplay or 
     }
   };
 
-  const handleContinueDebate = async () => {
+  const continueDebate = async () => {
     setIsLoading(true);
     setShowContinueDebate(false);
 
+    const lastMessages = messages.slice(-4);
+    const userMsg = lastMessages.find(m => m.role === 'user');
+    const claudeMsg = lastMessages.find(m => m.aiSource === 'claude');
+    const grokMsg = lastMessages.find(m => m.aiSource === 'grok');
+    const geminiMsg = lastMessages.find(m => m.aiSource === 'gemini');
+
+    const debatePrompt = `Continue the debate. Here's what the other AIs said:
+
+User: ${userMsg?.content}
+
+Claude: ${claudeMsg?.content}
+
+Grok: ${grokMsg?.content}
+
+Gemini: ${geminiMsg?.content}
+
+Respond to their points, challenge weak arguments, and strengthen your position.`;
+
     try {
-      const lastThreeMessages = messages.slice(-3);
-      const claudeLastMsg = lastThreeMessages.find((m) => m.aiSource === "claude")?.content || "";
-      const grokLastMsg = lastThreeMessages.find((m) => m.aiSource === "grok")?.content || "";
-      const geminiLastMsg = lastThreeMessages.find((m) => m.aiSource === "gemini")?.content || "";
-
-      const claudePrompt = `In this debate, Grok said: "${grokLastMsg}"\n\nAnd Gemini said: "${geminiLastMsg}"\n\nDirectly rebut or build upon their points. Provide your concise response.`;
-      const grokPrompt = `In this debate, Claude said: "${claudeLastMsg}"\n\nAnd Gemini said: "${geminiLastMsg}"\n\nDirectly rebut or build upon their points. Provide your concise response.`;
-      const geminiPrompt = `In this debate, Claude said: "${claudeLastMsg}"\n\nAnd Grok said: "${grokLastMsg}"\n\nDirectly rebut or build upon their points. Provide your concise response.`;
-
       const [claudeRes, grokRes, geminiRes] = await Promise.all([
-        callAI(claudePrompt, "claude", undefined, []),
-        callAI(grokPrompt, "grok", undefined, []),
-        callAI(geminiPrompt, "gemini", undefined, []),
+        callAI(debatePrompt, "claude", undefined, filterConversationHistory(messages), []),
+        callAI(debatePrompt, "grok", undefined, filterConversationHistory(messages), []),
+        callAI(debatePrompt, "gemini", undefined, filterConversationHistory(messages), []),
       ]);
 
-      const claudeMessage: Message = { role: "assistant", content: claudeRes, timestamp: new Date().toLocaleTimeString(), aiSource: "claude" };
-      const grokMessage: Message = { role: "assistant", content: grokRes, timestamp: new Date().toLocaleTimeString(), aiSource: "grok" };
-      const geminiMessage: Message = { role: "assistant", content: geminiRes, timestamp: new Date().toLocaleTimeString(), aiSource: "gemini" };
+      const claudeMessage: Message = { role: 'assistant', content: claudeRes, timestamp: new Date().toLocaleTimeString(), aiSource: 'claude' };
+      const grokMessage: Message = { role: 'assistant', content: grokRes, timestamp: new Date().toLocaleTimeString(), aiSource: 'grok' };
+      const geminiMessage: Message = { role: 'assistant', content: geminiRes, timestamp: new Date().toLocaleTimeString(), aiSource: 'gemini' };
 
       setCurrentMessages([...messages, claudeMessage, grokMessage, geminiMessage]);
       setShowContinueDebate(true);
     } catch (error) {
-      console.error("Error during debate continuation:", error);
-      const errorMessage: Message = {
-        role: 'assistant',
-        content: 'Sorry, an error occurred during the debate. Please try again.',
-        timestamp: new Date().toLocaleTimeString(),
-        aiSource: 'System',
-      };
-      setCurrentMessages([...messages, errorMessage]);
+      console.error("Error continuing debate:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const getAIAvatarInitial = (aiSource?: string) => {
-    switch (aiSource) {
-      case "claude": return "C";
-      case "grok": return "G";
-      case "gemini": return "G";
-      case "Nomadeum": return "N";
-      case "user": return "U";
-      default: return "";
-    }
+  const clearChat = () => {
+    setCurrentMessages([]);
+    setShowContinueDebate(false);
   };
 
   return (
     <div className="app" style={{ backgroundImage: `url(${backgroundImage})` }}>
-      <div className="main-container">
+      <div className="container">
         <header className="header">
           <div className="header-content">
             <div className="logo-container">
@@ -313,89 +351,54 @@ Synthesize these perspectives into one comprehensive answer. Do not roleplay or 
                 </select>
               </div>
             )}
-            <button className="clear-chat-btn" onClick={handleClearChat} title="Clear chat history">
-              🗑️ Clear
-            </button>
+            <button className="clear-btn" onClick={clearChat}>🗑️ Clear</button>
           </div>
         </header>
 
-        <main className="messages-area">
+        <div className="messages">
           {messages.map((msg, idx) => (
             <div key={idx} className={`message ${msg.role}`}>
-              <div className="message-content">
-                <div className={`avatar ${msg.role} ${msg.aiSource || ''}`}>
-                  <span>{getAIAvatarInitial(msg.aiSource || msg.role)}</span>
-                </div>
-                <div className="message-bubble-container">
-                  <div className={`message-bubble ${msg.role}`}>
-                    {msg.files && msg.files.length > 0 && (
-                      <div className="message-files">
-                        {msg.files.map((file, fileIdx) => (
-                          <div key={fileIdx} className="message-file-tag">
-                            📎 {file.name} ({formatFileSize(file.size)})
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <p>{msg.content}</p>
-                  </div>
-                  <div className="timestamp">{msg.timestamp}</div>
-                </div>
+              <div className="message-header">
+                <span className="message-source">
+                  {msg.role === 'user' ? 'U' : msg.aiSource === 'Nomadeum' ? 'N' : msg.aiSource === 'claude' ? 'C' : msg.aiSource === 'grok' ? 'G' : 'G'}
+                </span>
+                {msg.files && msg.files.length > 0 && (
+                  <span className="file-indicator">
+                    📎 {msg.files.map(f => f.name).join(', ')}
+                  </span>
+                )}
               </div>
+              <div className="message-content">{msg.content}</div>
+              {msg.timestamp && <div className="message-time">{msg.timestamp}</div>}
             </div>
           ))}
-          
-          {isLoading && (
-            <div className="message assistant">
-              <div className="message-content">
-                <div className="message-bubble-container">
-                  <div className="loading">
-                    <div className="dot"></div>
-                    <div className="dot"></div>
-                    <div className="dot"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          {isLoading && <div className="loading">Thinking...</div>}
           <div ref={messagesEndRef} />
-        </main>
+        </div>
 
         {showContinueDebate && (
           <div className="continue-debate-container">
-            <button
-              className="continue-debate-btn"
-              onClick={handleContinueDebate}
-              disabled={isLoading}
-            >
-              Continue Debate →
+            <button className="continue-debate-btn" onClick={continueDebate}>
+              🔄 Continue Debate
             </button>
           </div>
         )}
 
-        <footer className="input-area">
+        <div className="input-container">
           {attachedFiles.length > 0 && (
             <div className="attached-files-preview">
               {attachedFiles.map((file, idx) => (
-                <div key={idx} className="file-preview-item">
-                  <span className="file-preview-icon">📎</span>
-                  <span className="file-preview-name">{file.name}</span>
-                  <span className="file-preview-size">({formatFileSize(file.size)})</span>
-                  <button className="file-preview-remove" onClick={() => handleRemoveFile(idx)}>×</button>
+                <div key={idx} className="attached-file">
+                  <span>{file.name}</span>
+                  <button onClick={() => removeFile(idx)}>×</button>
                 </div>
               ))}
             </div>
           )}
-          
-          <div 
-            className={`input-container ${isDragging ? 'dragging' : ''}`}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          >
+          <div className="input-row">
             <input
-              type="file"
               ref={fileInputRef}
+              type="file"
               onChange={handleFileSelect}
               multiple
               accept="image/*,.pdf,.doc,.docx,.txt"
@@ -414,15 +417,16 @@ Synthesize these perspectives into one comprehensive answer. Do not roleplay or 
               className="input-field"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyPress={(e) => e.key === "Enter" && handleSend()}
-              placeholder={isDragging ? "Drop files here..." : "Ask anything..."}
+              onKeyPress={handleKeyPress}
+              onPaste={handlePaste}
+              placeholder="Ask anything..."
               disabled={isLoading}
             />
             <button className="send-btn" onClick={handleSend} disabled={isLoading}>
-              <span>Send</span>
+              💡
             </button>
           </div>
-        </footer>
+        </div>
       </div>
     </div>
   );
