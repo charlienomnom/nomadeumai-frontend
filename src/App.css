@@ -436,3 +436,77 @@
     filter: drop-shadow(0 0 25px rgba(255, 140, 0, 0.8)) drop-shadow(0 0 40px rgba(168, 85, 247, 0.4));
   }
 }
+
+/* RAG Toggle Styling */
+.rag-toggle {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 0 20px;
+}
+
+.rag-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #e0e0e0;
+  user-select: none;
+}
+
+.rag-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #00d4ff;
+}
+
+.rag-toggle label:hover {
+  color: #00d4ff;
+}
+
+/* Knowledge Base Upload Button */
+.kb-upload-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  padding: 10px 15px;
+  font-size: 20px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  margin-right: 10px;
+}
+
+.kb-upload-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.kb-upload-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Upload Status Notification */
+.upload-status {
+  padding: 12px 20px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: rgba(0, 212, 255, 0.1);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  color: #00d4ff;
+  font-size: 14px;
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
