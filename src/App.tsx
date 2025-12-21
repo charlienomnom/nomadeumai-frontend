@@ -35,8 +35,14 @@ export default function App() {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   
+  // NEW: RAG (Knowledge Base) state
+  const [useRAG, setUseRAG] = useState(true);
+  const [isUploadingToKB, setIsUploadingToKB] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string>("");
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const kbFileInputRef = useRef<HTMLInputElement>(null);
 
   // Get the current messages based on mode
   const getCurrentMessages = () => {
@@ -76,6 +82,7 @@ export default function App() {
   ) => {
     const formData = new FormData();
     formData.append('message', message);
+    formData.append('useRAG', useRAG.toString()); // NEW: Pass RAG toggle state
     if (systemPrompt) formData.append('systemPrompt', systemPrompt);
     if (conversationHistory) formData.append('conversationHistory', JSON.stringify(conversationHistory));
     
@@ -94,8 +101,49 @@ export default function App() {
           'Content-Type': 'multipart/form-data',
         },
       }
-    );
+     );
     return response.data.response;
+  };
+
+  // NEW: Upload document to Knowledge Base
+  const uploadToKnowledgeBase = async (file: File) => {
+    setIsUploadingToKB(true);
+    setUploadStatus("Uploading to knowledge base...");
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await axios.post(
+        'https://nomadeumai-backend-production.up.railway.app/api/upload-document',
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+       );
+      
+      if (response.data.success) {
+        setUploadStatus(`✅ ${file.name} uploaded! (${response.data.chunksStored} chunks stored)`);
+        setTimeout(() => setUploadStatus(""), 5000);
+      } else {
+        setUploadStatus(`❌ Upload failed: ${response.data.error}`);
+      }
+    } catch (error) {
+      console.error('Knowledge base upload error:', error);
+      setUploadStatus(`❌ Upload error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsUploadingToKB(false);
+    }
+  };
+
+  // NEW: Handle Knowledge Base file selection
+  const handleKBFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      await uploadToKnowledgeBase(e.target.files[0]);
+      e.target.value = ''; // Reset input
+    }
   };
 
   const filterConversationHistory = (history: Message[]) => {
@@ -302,21 +350,22 @@ Grok: ${grokMsg?.content}
 
 Gemini: ${geminiMsg?.content}
 
-Respond to their points, challenge weak arguments, and strengthen your position.`;
+Now respond with your updated perspective, addressing their points.`;
 
     try {
       const [claudeRes, grokRes, geminiRes] = await Promise.all([
-        callAI(debatePrompt, "claude", undefined, filterConversationHistory(messages), []),
-        callAI(debatePrompt, "grok", undefined, filterConversationHistory(messages), []),
-        callAI(debatePrompt, "gemini", undefined, filterConversationHistory(messages), []),
+        callAI(debatePrompt, "claude", undefined, [], []),
+        callAI(debatePrompt, "grok", undefined, [], []),
+        callAI(debatePrompt, "gemini", undefined, [], []),
       ]);
 
       const claudeMessage: Message = { role: 'assistant', content: claudeRes, timestamp: new Date().toLocaleTimeString(), aiSource: 'claude' };
       const grokMessage: Message = { role: 'assistant', content: grokRes, timestamp: new Date().toLocaleTimeString(), aiSource: 'grok' };
       const geminiMessage: Message = { role: 'assistant', content: geminiRes, timestamp: new Date().toLocaleTimeString(), aiSource: 'gemini' };
-
+      
       setCurrentMessages([...messages, claudeMessage, grokMessage, geminiMessage]);
       setShowContinueDebate(true);
+
     } catch (error) {
       console.error("Error continuing debate:", error);
     } finally {
@@ -324,37 +373,78 @@ Respond to their points, challenge weak arguments, and strengthen your position.
     }
   };
 
-  const clearChat = () => {
-    setCurrentMessages([]);
-    setShowContinueDebate(false);
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    if (e.dataTransfer.files) {
+      const newFiles = Array.from(e.dataTransfer.files);
+      setAttachedFiles(prev => [...prev, ...newFiles]);
+    }
   };
 
   return (
     <div className="app" style={{ backgroundImage: `url(${backgroundImage})` }}>
-      <div className="container">
-        <header className="header">
-          <div className="header-content">
-            <div className="logo-container">
-              <img src={nomadeumLogo} alt="Nomadeum Logo" className="nomadeum-logo" />
-            </div>
-            <div className="mode-selector">
-              <button className={mode === "unified" ? "active" : ""} onClick={() => setMode("unified")}>✨ unified</button>
-              <button className={mode === "debate" ? "active" : ""} onClick={() => setMode("debate")}>💬 debate</button>
-              <button className={mode === "individual" ? "active" : ""} onClick={() => setMode("individual")}>🤖 individual</button>
-            </div>
-            {mode === "individual" && (
-              <div className="ai-selector">
-                <select value={selectedAI} onChange={(e) => setSelectedAI(e.target.value)}>
-                  <option value="claude">Claude</option>
-                  <option value="grok">Grok</option>
-                  <option value="gemini">Gemini</option>
-                </select>
-              </div>
-            )}
-            <button className="clear-btn" onClick={clearChat}>🗑️ Clear</button>
+      <div className="header">
+        <img src={nomadeumLogo} alt="Nomadeum Logo" className="logo" />
+        <h1>NomadeumAI</h1>
+        <div className="mode-selector">
+          <button 
+            className={mode === 'unified' ? 'active' : ''} 
+            onClick={() => setMode('unified')}
+          >
+            🧠 Synthesis
+          </button>
+          <button 
+            className={mode === 'debate' ? 'active' : ''} 
+            onClick={() => setMode('debate')}
+          >
+            💬 Debate
+          </button>
+          <button 
+            className={mode === 'individual' ? 'active' : ''} 
+            onClick={() => setMode('individual')}
+          >
+            🤖 Individual
+          </button>
+        </div>
+        {mode === 'individual' && (
+          <div className="ai-selector">
+            <select value={selectedAI} onChange={(e) => setSelectedAI(e.target.value)}>
+              <option value="claude">Claude</option>
+              <option value="grok">Grok</option>
+              <option value="gemini">Gemini</option>
+            </select>
           </div>
-        </header>
+        )}
+        {/* NEW: RAG Toggle */}
+        <div className="rag-toggle">
+          <label>
+            <input 
+              type="checkbox" 
+              checked={useRAG} 
+              onChange={(e) => setUseRAG(e.target.checked)}
+            />
+            🧠 Use Knowledge Base
+          </label>
+        </div>
+      </div>
 
+      <div 
+        className={`chat-container ${isDragging ? 'dragging' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         <div className="messages">
           {messages.map((msg, idx) => (
             <div key={idx} className={`message ${msg.role}`}>
@@ -385,6 +475,13 @@ Respond to their points, challenge weak arguments, and strengthen your position.
         )}
 
         <div className="input-container">
+          {/* NEW: Knowledge Base Upload Status */}
+          {uploadStatus && (
+            <div className="upload-status">
+              {uploadStatus}
+            </div>
+          )}
+          
           {attachedFiles.length > 0 && (
             <div className="attached-files-preview">
               {attachedFiles.map((file, idx) => (
@@ -395,6 +492,7 @@ Respond to their points, challenge weak arguments, and strengthen your position.
               ))}
             </div>
           )}
+          
           <div className="input-row">
             <input
               ref={fileInputRef}
@@ -404,26 +502,42 @@ Respond to their points, challenge weak arguments, and strengthen your position.
               accept="image/*,.pdf,.doc,.docx,.txt"
               style={{ display: 'none' }}
             />
+            {/* NEW: Knowledge Base file input */}
+            <input
+              ref={kbFileInputRef}
+              type="file"
+              onChange={handleKBFileSelect}
+              accept=".pdf,.doc,.docx,.txt"
+              style={{ display: 'none' }}
+            />
             <button 
               className="attach-btn" 
               onClick={() => fileInputRef.current?.click()}
               disabled={isLoading}
-              title="Attach files"
+              title="Attach files for this message"
             >
               📎
             </button>
+            {/* NEW: Upload to Knowledge Base button */}
+            <button 
+              className="kb-upload-btn" 
+              onClick={() => kbFileInputRef.current?.click()}
+              disabled={isUploadingToKB}
+              title="Upload document to Knowledge Base"
+            >
+              {isUploadingToKB ? '⏳' : '📚'}
+            </button>
             <input
               type="text"
-              className="input-field"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
               onPaste={handlePaste}
-              placeholder="Ask anything..."
+              placeholder="Type your message..."
               disabled={isLoading}
             />
-            <button className="send-btn" onClick={handleSend} disabled={isLoading}>
-              💡
+            <button onClick={handleSend} disabled={isLoading}>
+              Send
             </button>
           </div>
         </div>
